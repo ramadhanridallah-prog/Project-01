@@ -96,6 +96,7 @@ export interface DriveFileItem {
 export interface ColumnMappingConfig {
   sampleNoCol?: string;
   productNameCol?: string;
+  skuCodeCol?: string;
   productDescriptionCol?: string;
   batchNoCol?: string;
   lineCol?: string;

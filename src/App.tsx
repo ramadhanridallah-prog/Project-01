@@ -26,7 +26,20 @@ import {
 } from './utils/excelParser';
 import { SAMPLE_DATASETS, getSampleRecords } from './data/sampleData';
 import { SkuMasterItem, ValidationSummary } from './types/masterData';
-import { loadMasterData, saveMasterData } from './services/masterDataService';
+import {
+  loadMasterData,
+  saveMasterData,
+  autoSaveMasterDataToGoogleDrive,
+} from './services/masterDataService';
+import {
+  saveActiveDataset,
+  loadActiveDataset,
+  clearActiveDataset,
+  saveUploadActivity,
+  getSavedUploadActivities,
+  autoSaveUploadToGoogleDrive,
+  updateUploadActivityCloudSync,
+} from './services/autoSaveService';
 import { initAuth, googleSignIn, logoutGoogle } from './services/firebaseAuth';
 
 import { Header } from './components/Header';
@@ -43,12 +56,30 @@ import { GiveawaySection } from './components/GiveawaySection';
 import { MasterDataModal } from './components/MasterDataModal';
 import { ValidationErrorModal } from './components/ValidationErrorModal';
 import { GoogleDriveModal } from './components/GoogleDriveModal';
+import { UploadHistoryModal } from './components/UploadHistoryModal';
 
 export default function App() {
-  // App dataset states
+  // App dataset states - check if there is an auto-saved active dataset from a previous upload
   const [selectedSampleId, setSelectedSampleId] = useState<string>('kopi-100g');
-  const [records, setRecords] = useState<BdktRecord[]>(() => getSampleRecords('kopi-100g'));
-  const [costPerKg, setCostPerKg] = useState<number>(25000); // Rp 25.000 / kg
+  const [records, setRecords] = useState<BdktRecord[]>(() => {
+    const saved = loadActiveDataset();
+    if (saved && saved.records.length > 0) {
+      return saved.records;
+    }
+    return getSampleRecords('kopi-100g');
+  });
+  const [costPerKg, setCostPerKg] = useState<number>(() => {
+    const saved = loadActiveDataset();
+    return saved?.costPerKg || 25000;
+  });
+  const [activeDatasetRestored, setActiveDatasetRestored] = useState<boolean>(() => {
+    const saved = loadActiveDataset();
+    return Boolean(saved && saved.records.length > 0);
+  });
+  const [savedUploadsCount, setSavedUploadsCount] = useState<number>(() =>
+    getSavedUploadActivities().length
+  );
+  const [isUploadHistoryOpen, setIsUploadHistoryOpen] = useState(false);
 
   // Dropdown filter states
   const [filterState, setFilterState] = useState<FilterState>({

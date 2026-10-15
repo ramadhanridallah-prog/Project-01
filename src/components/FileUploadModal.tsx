@@ -80,9 +80,15 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
               <FileSpreadsheet className="w-5 h-5 text-emerald-600" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">Import File Excel / CSV</h2>
+              <div className="flex items-center gap-2">
+                <h2 className="text-base font-bold text-slate-900">Import File Excel / CSV</h2>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                  Auto-Save Aktif
+                </span>
+              </div>
               <p className="text-xs text-slate-500">
-                Unggah hasil timbang produk QC (.xlsx, .xls, .csv)
+                Unggah hasil timbang produk QC (.xlsx, .xls, .csv) — Tersimpan otomatis
               </p>
             </div>
           </div>

@@ -154,10 +154,31 @@ export const ColumnMapperModal: React.FC<ColumnMapperModalProps> = ({
               </div>
             </div>
 
+            {/* SKU Code */}
+            <div>
+              <label className="block text-xs font-bold text-indigo-700 mb-1.5">
+                Kolom Kode SKU (Opsional)
+              </label>
+              <select
+                value={mapping.skuCodeCol || ''}
+                onChange={(e) =>
+                  setMapping({ ...mapping, skuCodeCol: e.target.value })
+                }
+                className="w-full bg-slate-50 text-xs text-slate-900 px-3 py-2 rounded-xl border border-slate-300 font-medium"
+              >
+                <option value="">-- Otomatis / Cari di Master Data --</option>
+                {availableColumns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+            </div>
+
             {/* Product Name */}
             <div>
               <label className="block text-xs font-bold text-slate-700 mb-1.5">
-                Kolom Nama Produk / SKU (Opsional)
+                Kolom Nama Produk (Opsional)
               </label>
               <select
                 value={mapping.productNameCol || ''}

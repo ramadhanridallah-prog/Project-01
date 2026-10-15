@@ -110,11 +110,17 @@ export function loadMasterData(): SkuMasterItem[] {
 }
 
 /**
- * Menyimpan master data ke localStorage
+ * Menyimpan master data ke localStorage (Auto-Save)
  */
 export function saveMasterData(items: SkuMasterItem[]): void {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(items));
+    try {
+      const raw = localStorage.getItem('bdkt_autosave_settings_v1');
+      const settings = raw ? JSON.parse(raw) : { autoSaveEnabled: true, cloudAutoSaveEnabled: true };
+      settings.lastMasterDataAutoSavedAt = new Date().toISOString();
+      localStorage.setItem('bdkt_autosave_settings_v1', JSON.stringify(settings));
+    } catch {}
   } catch (err) {
     console.error('Error saving master data to localStorage:', err);
   }
@@ -122,27 +128,40 @@ export function saveMasterData(items: SkuMasterItem[]): void {
 
 /**
  * Mencari item Master Data berdasarkan Kode SKU atau Nama Produk
+ * Mendukung pencarian eksplisit SKU dan Nama Produk sekaligus
  */
 export function findMatchingSku(
   identifier: string,
-  masterList: SkuMasterItem[]
+  masterList: SkuMasterItem[],
+  explicitSkuCode?: string
 ): SkuMasterItem | null {
+  if (!masterList || masterList.length === 0) return null;
+
+  // 1. Jika ada explicitSkuCode dari kolom SKU terpisah di file Excel
+  if (explicitSkuCode && explicitSkuCode.trim().length > 0) {
+    const cleanSku = explicitSkuCode.toLowerCase().replace(/[^a-z0-9]/g, '');
+    const byExplicitSku = masterList.find(
+      (m) => m.skuCode.toLowerCase().replace(/[^a-z0-9]/g, '') === cleanSku
+    );
+    if (byExplicitSku) return byExplicitSku;
+  }
+
   if (!identifier) return null;
   const clean = identifier.toLowerCase().replace(/[^a-z0-9]/g, '');
 
-  // 1. Exact or clean match by skuCode
+  // 2. Exact or clean match by skuCode
   const byCode = masterList.find(
     (m) => m.skuCode.toLowerCase().replace(/[^a-z0-9]/g, '') === clean
   );
   if (byCode) return byCode;
 
-  // 2. Exact or clean match by productName
+  // 3. Exact or clean match by productName
   const byName = masterList.find(
     (m) => m.productName.toLowerCase().replace(/[^a-z0-9]/g, '') === clean
   );
   if (byName) return byName;
 
-  // 3. Substring match
+  // 4. Substring match
   const bySub = masterList.find(
     (m) =>
       clean.includes(m.skuCode.toLowerCase().replace(/[^a-z0-9]/g, '')) ||
@@ -152,6 +171,48 @@ export function findMatchingSku(
   if (bySub) return bySub;
 
   return null;
+}
+
+/**
+ * Auto-Save Master Data ke Google Drive di latar belakang jika terhubung
+ */
+export async function autoSaveMasterDataToGoogleDrive(
+  accessToken: string,
+  items: SkuMasterItem[]
+): Promise<{ fileId: string; webViewLink?: string }> {
+  const { uploadFileToGoogleDrive, getOrCreateAppFolder, saveSyncRecord } = await import(
+    './googleDrive'
+  );
+
+  const fileName = `AutoSave_MasterData_SKU_BDKT_${new Date().toISOString().split('T')[0]}.json`;
+  const jsonBlob = new Blob([JSON.stringify(items, null, 2)], {
+    type: 'application/json',
+  });
+
+  const appFolderId = await getOrCreateAppFolder(accessToken, 'BDKT MetricGuard Cloud');
+  const uploadRes = await uploadFileToGoogleDrive(
+    accessToken,
+    fileName,
+    jsonBlob,
+    'application/json',
+    `Backup Auto-Save Master Data BDKT (${items.length} SKU terdaftar)`,
+    appFolderId
+  );
+
+  saveSyncRecord({
+    id: 'sync_md_' + Date.now(),
+    fileId: uploadRes.id,
+    fileName: uploadRes.name,
+    fileType: 'MASTER_DATA',
+    timestamp: new Date().toLocaleString('id-ID'),
+    webViewLink: uploadRes.webViewLink,
+    recordCount: items.length,
+    productName: 'Master Data SKU',
+    status: 'SUCCESS',
+    details: 'Auto-Save otomatis sinkronisasi Master Data ke Google Drive',
+  });
+
+  return { fileId: uploadRes.id, webViewLink: uploadRes.webViewLink };
 }
 
 /**

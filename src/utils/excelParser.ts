@@ -33,6 +33,7 @@ export function autoDetectColumns(headers: string[]): ColumnMappingConfig {
     actualWeightCol: '',
     nominalWeightCol: '',
     productNameCol: '',
+    skuCodeCol: '',
     batchNoCol: '',
     lineCol: '',
     dateCol: '',
@@ -44,6 +45,22 @@ export function autoDetectColumns(headers: string[]): ColumnMappingConfig {
 
   for (const h of headers) {
     const clean = NORMALIZE_STR(h);
+
+    // SKU Code
+    if (
+      !config.skuCodeCol &&
+      (clean === 'sku' ||
+        clean === 'kodesku' ||
+        clean === 'skucode' ||
+        clean === 'kodeproduk' ||
+        clean === 'productcode' ||
+        clean === 'barcode' ||
+        clean === 'partnumber' ||
+        clean.includes('kodesku') ||
+        clean.includes('skucode'))
+    ) {
+      config.skuCodeCol = h;
+    }
 
     // Actual Weight
     if (
@@ -77,18 +94,21 @@ export function autoDetectColumns(headers: string[]): ColumnMappingConfig {
       config.nominalWeightCol = h;
     }
 
-    // Product Name
+    // Product Name (avoid capturing pure SKU column if already detected or clearly SKU)
     if (
       !config.productNameCol &&
       (clean.includes('produk') ||
         clean.includes('product') ||
-        clean.includes('sku') ||
         clean.includes('namaproduk') ||
+        clean.includes('nama') ||
         clean.includes('item') ||
         clean.includes('barang') ||
-        clean === 'nama')
+        (clean.includes('sku') && !clean.includes('kodesku')))
     ) {
-      config.productNameCol = h;
+      // Don't assign to productName if this exact column is already skuCodeCol
+      if (h !== config.skuCodeCol) {
+        config.productNameCol = h;
+      }
     }
 
     // Batch No
@@ -314,6 +334,10 @@ export function parseSpreadsheetBuffer(
     if (mapping.productNameCol && row[mapping.productNameCol]) {
       productName = String(row[mapping.productNameCol]).trim();
     }
+    let fileSkuCode = '';
+    if (mapping.skuCodeCol && row[mapping.skuCodeCol]) {
+      fileSkuCode = String(row[mapping.skuCodeCol]).trim();
+    }
 
     // 4. Parsing Berat Standar Qn dari File
     let fileNominalWeight: number | null = null;
@@ -330,7 +354,7 @@ export function parseSpreadsheetBuffer(
     let matchedSku: SkuMasterItem | null = null;
 
     if (masterDataList && masterDataList.length > 0) {
-      matchedSku = findMatchingSku(productName, masterDataList);
+      matchedSku = findMatchingSku(productName, masterDataList, fileSkuCode);
 
       if (matchedSku) {
         // Cek ketidakcocokan standar berat jika file mencantumkan Qn
@@ -355,16 +379,18 @@ export function parseSpreadsheetBuffer(
         // Terapkan standar resmi dari Master Data
         finalNominalWeight = matchedSku.nominalWeight;
         productName = matchedSku.productName;
-      } else if (productName && productName !== 'Produk Standar') {
+      } else if ((productName && productName !== 'Produk Standar') || fileSkuCode) {
         // SKU tidak ditemukan dalam Master Data
+        const identifierLabel = fileSkuCode ? `SKU: ${fileSkuCode} (${productName})` : `"${productName}"`;
         validationErrors.push({
           rowNumber: excelRowNumber,
-          columnName: mapping.productNameCol || 'Nama Produk',
-          inputValue: productName,
+          columnName: mapping.skuCodeCol || mapping.productNameCol || 'SKU / Nama Produk',
+          inputValue: fileSkuCode || productName,
+          sku: fileSkuCode || undefined,
           productName,
           errorType: 'SKU_NOT_FOUND',
           severity: 'WARNING',
-          message: `SKU / Produk "${productName}" belum terdaftar dalam Master Data SKU pabrik.`,
+          message: `SKU / Produk ${identifierLabel} belum terdaftar dalam Master Data SKU pabrik.`,
           actionTaken: `Menggunakan standar berat ${finalNominalWeight}g`,
         });
       }
@@ -425,7 +451,7 @@ export function parseSpreadsheetBuffer(
       productDescription = matchedSku.notes || (matchedSku.category ? `Kategori: ${matchedSku.category}` : '');
     }
 
-    const skuCode = matchedSku?.skuCode;
+    const skuCode = matchedSku?.skuCode || (fileSkuCode ? fileSkuCode : undefined);
     const category = matchedSku?.category;
 
     // Tare & Gross Weight
