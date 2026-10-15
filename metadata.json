@@ -1,0 +1,6 @@
+{
+  "name": "BDKT Weight Gap & Compliance Dashboard",
+  "description": "Aplikasi dashboard analisis gap standar berat BDKT (Barang Dalam Keadaan Terbungkus) dengan berat aktual produk melalui impor file Excel dan integrasi Google Drive.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
