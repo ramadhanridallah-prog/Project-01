@@ -236,10 +236,15 @@ export const MasterDataModal: React.FC<MasterDataModalProps> = ({
                   <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                   Auto-Save Aktif
                 </span>
+                {/* Real-time Multi-User sync indicator */}
+                <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-100 text-indigo-800 border border-indigo-200">
+                  <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                  Real-Time Multi-User
+                </span>
               </div>
               <p className="text-xs text-slate-500 mt-0.5">
-                Setiap perubahan disimpan otomatis ke penyimpanan lokal
-                {accessToken ? ' dan Google Drive Cloud.' : '. Hubungkan Google Drive untuk sinkronisasi cloud.'}
+                Setiap perubahan disimpan otomatis & disinkronkan secara langsung (real-time) ke seluruh perangkat pengguna lain
+                {accessToken ? ' serta Google Drive Cloud.' : '.'}
               </p>
             </div>
           </div>

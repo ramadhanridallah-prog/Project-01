@@ -19,6 +19,8 @@ interface HeaderProps {
   savedUploadCount?: number;
   onOpenGoogleDrive?: () => void;
   isDriveConnected?: boolean;
+  realtimeStatus?: 'CONNECTED' | 'CONNECTING' | 'DISCONNECTED';
+  onlineUsersCount?: number;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -31,6 +33,8 @@ export const Header: React.FC<HeaderProps> = ({
   savedUploadCount = 0,
   onOpenGoogleDrive,
   isDriveConnected,
+  realtimeStatus = 'CONNECTED',
+  onlineUsersCount = 1,
 }) => {
   return (
     <header className="bg-white border-b border-slate-200 text-slate-800 sticky top-0 z-40 shadow-xs">
@@ -46,6 +50,40 @@ export const Header: React.FC<HeaderProps> = ({
                 <span className="hidden md:inline-flex items-center px-2 py-0.5 rounded text-xs font-semibold bg-emerald-50 text-emerald-700 border border-emerald-200">
                   Permendag 31/2011 & OIML R87
                 </span>
+
+                {/* Real-Time Live Status Indicator Badge */}
+                <div
+                  title={
+                    realtimeStatus === 'CONNECTED'
+                      ? `Real-Time Aktif: Sinkronisasi data multi-pengguna langsung (${onlineUsersCount} online)`
+                      : realtimeStatus === 'CONNECTING'
+                      ? 'Menyambungkan koneksi real-time ke server...'
+                      : 'Koneksi real-time terputus (mencoba menyambung kembali)'
+                  }
+                  className={`hidden sm:inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] font-bold border transition ${
+                    realtimeStatus === 'CONNECTED'
+                      ? 'bg-emerald-50 text-emerald-800 border-emerald-300'
+                      : realtimeStatus === 'CONNECTING'
+                      ? 'bg-amber-50 text-amber-800 border-amber-300'
+                      : 'bg-slate-100 text-slate-600 border-slate-300'
+                  }`}
+                >
+                  <span
+                    className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                      realtimeStatus === 'CONNECTED'
+                        ? 'bg-emerald-500 animate-pulse'
+                        : realtimeStatus === 'CONNECTING'
+                        ? 'bg-amber-500 animate-ping'
+                        : 'bg-slate-400'
+                    }`}
+                  />
+                  <span>{realtimeStatus === 'CONNECTED' ? 'Real-Time' : 'Sync...'}</span>
+                  {onlineUsersCount > 0 && (
+                    <span className="px-1 py-0.2 rounded bg-white text-slate-700 font-mono text-[9px] border border-slate-200">
+                      {onlineUsersCount} online
+                    </span>
+                  )}
+                </div>
               </div>
               <p className="text-xs text-slate-500 hidden sm:block">
                 Monitoring Gap Standar Berat BDKT & Toleransi Kuantitas Netto

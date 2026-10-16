@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   X,
   History,
@@ -37,6 +37,12 @@ export const UploadHistoryModal: React.FC<UploadHistoryModalProps> = ({
     getSavedUploadActivities()
   );
   const [searchTerm, setSearchTerm] = useState('');
+
+  useEffect(() => {
+    if (isOpen) {
+      setActivities(getSavedUploadActivities());
+    }
+  }, [isOpen]);
 
   if (!isOpen) return null;
 

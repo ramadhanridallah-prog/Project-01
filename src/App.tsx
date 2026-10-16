@@ -41,6 +41,10 @@ import {
   updateUploadActivityCloudSync,
 } from './services/autoSaveService';
 import { initAuth, googleSignIn, logoutGoogle } from './services/firebaseAuth';
+import {
+  realtimeClient,
+  RealtimeConnectionStatus,
+} from './services/realtimeService';
 
 import { Header } from './components/Header';
 import { FilterBar, FilterState } from './components/FilterBar';
@@ -59,6 +63,10 @@ import { GoogleDriveModal } from './components/GoogleDriveModal';
 import { UploadHistoryModal } from './components/UploadHistoryModal';
 
 export default function App() {
+  // Real-time synchronization states
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeConnectionStatus>('CONNECTING');
+  const [onlineUsersCount, setOnlineUsersCount] = useState<number>(1);
+
   // App dataset states - check if there is an auto-saved active dataset from a previous upload
   const [selectedSampleId, setSelectedSampleId] = useState<string>('kopi-100g');
   const [records, setRecords] = useState<BdktRecord[]>(() => {
@@ -134,6 +142,87 @@ export default function App() {
     };
   }, []);
 
+  // Initialize Real-Time Sync listener across all connected devices and browser tabs
+  useEffect(() => {
+    realtimeClient.init({
+      onConnectionStatusChange: (status) => {
+        setRealtimeStatus(status);
+      },
+      onUserPresenceChange: (count) => {
+        setOnlineUsersCount(count);
+      },
+      onMasterDataUpdated: (items, updatedBy) => {
+        setMasterDataList(items);
+        saveMasterData(items);
+        showToast(
+          `⚡ Real-Time: Master Data diperbarui langsung oleh ${updatedBy} (${items.length} SKU)!`,
+          'info'
+        );
+      },
+      onActiveDatasetUpdated: (payload) => {
+        setRecords(payload.records);
+        setLastUploadedFileName(payload.fileName);
+        setSelectedSampleId('custom');
+        if (payload.costPerKg) setCostPerKg(payload.costPerKg);
+        saveActiveDataset(payload.fileName, payload.records, 'custom', payload.costPerKg || 25000);
+        setActiveDatasetRestored(false);
+        showToast(
+          `⚡ Real-Time: Data timbang "${payload.fileName}" (${payload.records.length} sampel) diperbarui langsung oleh ${payload.updatedBy || 'rekan kerja'}!`,
+          'info'
+        );
+      },
+      onUploadActivityAdded: (activity, updatedBy) => {
+        saveUploadActivity(activity.fileName, activity.records, {
+          productName: activity.productName,
+          skuCode: activity.skuCode,
+          batchNo: activity.batchNo,
+          nominalWeight: activity.nominalWeight,
+          averageActualWeight: activity.averageWeight,
+          unit: activity.unit,
+          overallStatus: activity.overallStatus === 'PASS' ? 'PASS' : activity.overallStatus === 'WARNING' ? 'WARNING_GIVEAWAY' : 'FAIL_AVERAGE',
+          statusMessage: activity.complianceStatus,
+          t1Count: activity.t1Count,
+          t2Count: activity.t2Count,
+        } as any);
+        setSavedUploadsCount(getSavedUploadActivities().length);
+        showToast(
+          `⚡ Real-Time: Riwayat upload baru masuk dari ${updatedBy} (${activity.fileName})`,
+          'info'
+        );
+      },
+      onActiveDatasetCleared: (updatedBy) => {
+        clearActiveDataset();
+        const data = getSampleRecords('kopi-100g');
+        setRecords(data);
+        setSelectedSampleId('kopi-100g');
+        setActiveDatasetRestored(false);
+        showToast(`⚡ Real-Time: Dataset aktif direset ke sampel oleh ${updatedBy}`, 'info');
+      },
+      onInitState: (payload) => {
+        if (payload.masterData && Array.isArray(payload.masterData) && payload.masterData.length > 0) {
+          setMasterDataList(payload.masterData);
+          saveMasterData(payload.masterData);
+        }
+        if (payload.activeDataset && Array.isArray(payload.activeDataset.records) && payload.activeDataset.records.length > 0) {
+          setRecords(payload.activeDataset.records);
+          setLastUploadedFileName(payload.activeDataset.fileName);
+          setSelectedSampleId('custom');
+          if (payload.activeDataset.costPerKg) setCostPerKg(payload.activeDataset.costPerKg);
+          saveActiveDataset(
+            payload.activeDataset.fileName,
+            payload.activeDataset.records,
+            'custom',
+            payload.activeDataset.costPerKg || 25000
+          );
+        }
+      },
+    });
+
+    return () => {
+      realtimeClient.destroy();
+    };
+  }, []);
+
   const handleSignInGoogle = async () => {
     try {
       const res = await googleSignIn();
@@ -176,11 +265,17 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 4500);
   };
 
-  // Update Master Data handler with local & cloud Auto-Save
+  // Update Master Data handler with local & cloud Auto-Save + Real-Time Broadcast
   const handleUpdateMasterData = (newItems: SkuMasterItem[]) => {
     setMasterDataList(newItems);
     saveMasterData(newItems);
     showToast(`Master Data berhasil diperbarui (${newItems.length} SKU) & disimpan otomatis!`, 'success');
+
+    // Broadcast real-time update to all connected clients & devices
+    realtimeClient.broadcastMasterDataUpdate(
+      newItems,
+      currentUser?.displayName || currentUser?.email || 'Admin QC'
+    );
 
     if (accessToken) {
       autoSaveMasterDataToGoogleDrive(accessToken, newItems)
@@ -244,6 +339,19 @@ export default function App() {
         'success'
       );
     }
+
+    // 5. Broadcast real-time update to all connected clients & devices
+    realtimeClient.broadcastActiveDatasetUpdate(
+      fileName,
+      cleanRecords,
+      costPerKg,
+      'custom',
+      currentUser?.displayName || currentUser?.email || 'Operator QC'
+    );
+    realtimeClient.broadcastUploadActivity(
+      savedActivity,
+      currentUser?.displayName || currentUser?.email || 'Operator QC'
+    );
   };
 
   // Restore dataset from past auto-saved upload activities
@@ -255,6 +363,15 @@ export default function App() {
     setActiveDatasetRestored(true);
     setIsUploadHistoryOpen(false);
     showToast(`Berhasil memulihkan ${restoredRecords.length} data sampel dari riwayat: ${fileName}`, 'success');
+
+    // Broadcast real-time update on restore
+    realtimeClient.broadcastActiveDatasetUpdate(
+      fileName,
+      restoredRecords,
+      costPerKg,
+      'custom',
+      currentUser?.displayName || currentUser?.email || 'Operator QC'
+    );
   };
 
   // Filtered Records based on FilterBar Dropdown controls
@@ -470,6 +587,8 @@ export default function App() {
           setIsGoogleDriveOpen(true);
         }}
         isDriveConnected={Boolean(accessToken && currentUser)}
+        realtimeStatus={realtimeStatus}
+        onlineUsersCount={onlineUsersCount}
       />
 
       {/* Main Content Dashboard */}
@@ -534,6 +653,9 @@ export default function App() {
               <button
                 onClick={() => {
                   clearActiveDataset();
+                  realtimeClient.broadcastClearActiveDataset(
+                    currentUser?.displayName || currentUser?.email || 'Operator QC'
+                  );
                   handleSelectSample('kopi-100g');
                   showToast('Dataset aktif direset ke contoh data sampel.', 'info');
                 }}
