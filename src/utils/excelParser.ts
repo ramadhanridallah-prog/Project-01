@@ -37,6 +37,7 @@ export function autoDetectColumns(headers: string[]): ColumnMappingConfig {
     batchNoCol: '',
     lineCol: '',
     dateCol: '',
+    timeCol: '',
     sampleNoCol: '',
     tareWeightCol: '',
     grossWeightCol: '',
@@ -147,15 +148,30 @@ export function autoDetectColumns(headers: string[]): ColumnMappingConfig {
       config.lineCol = h;
     }
 
-    // Date
+    // Date (Tanggal Sampling format dd/mm/yy)
     if (
       !config.dateCol &&
       (clean.includes('tanggal') ||
-        clean.includes('date') ||
-        clean.includes('waktu') ||
-        clean.includes('time') ||
-        clean.includes('jam'))
+        clean.includes('tgl') ||
+        (clean.includes('date') && !clean.includes('update')))
     ) {
+      config.dateCol = h;
+    }
+
+    // Time (Jam Sampling terpisah)
+    if (
+      !config.timeCol &&
+      (clean.includes('jam') ||
+        clean.includes('pukul') ||
+        clean.includes('time') ||
+        clean.includes('hour') ||
+        clean.includes('menit'))
+    ) {
+      config.timeCol = h;
+    }
+
+    // Fallback: Jika kolom bernama 'waktu' dan belum terisi dateCol
+    if (!config.dateCol && (clean.includes('waktu') || clean === 'datetime')) {
       config.dateCol = h;
     }
 
@@ -190,6 +206,111 @@ export function autoDetectColumns(headers: string[]): ColumnMappingConfig {
 
   // Fallback: jika belum ada actualWeightCol, coba cari kolom numerik pertama
   return config;
+}
+
+/**
+ * Memformat berbagai tipe input tanggal ke format standar dd/mm/yy
+ */
+export function formatToDdMmYy(val: any): string {
+  if (val === undefined || val === null || val === '') return '';
+
+  // 1. Jika objek Date
+  if (val instanceof Date && !isNaN(val.getTime())) {
+    const d = String(val.getDate()).padStart(2, '0');
+    const m = String(val.getMonth() + 1).padStart(2, '0');
+    const y = String(val.getFullYear()).slice(-2);
+    return `${d}/${m}/${y}`;
+  }
+
+  // 2. Jika nomor serial tanggal Excel (misal 45579 -> 14/10/24)
+  if (typeof val === 'number' && val > 25000 && val < 75000) {
+    try {
+      const utcDays = Math.floor(val - 25569);
+      const utcValue = utcDays * 86400;
+      const dateInfo = new Date(utcValue * 1000);
+      const d = String(dateInfo.getUTCDate()).padStart(2, '0');
+      const m = String(dateInfo.getUTCMonth() + 1).padStart(2, '0');
+      const y = String(dateInfo.getUTCFullYear()).slice(-2);
+      return `${d}/${m}/${y}`;
+    } catch {
+      // fallback to string processing
+    }
+  }
+
+  const str = String(val).trim();
+
+  // 3. Jika format string mengandung slash (misal dd/mm/yy, dd/mm/yyyy, atau yyyy/mm/dd)
+  if (str.includes('/')) {
+    const datePart = str.split(' ')[0];
+    const parts = datePart.split('/');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // yyyy/mm/dd
+        const y = parts[0].slice(-2);
+        const m = parts[1].padStart(2, '0');
+        const d = parts[2].padStart(2, '0');
+        return `${d}/${m}/${y}`;
+      } else {
+        // dd/mm/yy atau dd/mm/yyyy
+        const d = parts[0].padStart(2, '0');
+        const m = parts[1].padStart(2, '0');
+        let y = parts[2].trim();
+        if (y.length === 4) y = y.slice(-2);
+        return `${d}/${m}/${y}`;
+      }
+    }
+  }
+
+  // 4. Jika format string mengandung dash (misal YYYY-MM-DD atau DD-MM-YYYY)
+  if (str.includes('-')) {
+    const datePart = str.split(' ')[0];
+    const parts = datePart.split('-');
+    if (parts.length === 3) {
+      if (parts[0].length === 4) {
+        // YYYY-MM-DD
+        const y = parts[0].slice(-2);
+        const m = parts[1].padStart(2, '0');
+        const d = parts[2].padStart(2, '0');
+        return `${d}/${m}/${y}`;
+      } else {
+        // DD-MM-YYYY atau DD-MM-YY
+        const d = parts[0].padStart(2, '0');
+        const m = parts[1].padStart(2, '0');
+        let y = parts[2].trim();
+        if (y.length === 4) y = y.slice(-2);
+        return `${d}/${m}/${y}`;
+      }
+    }
+  }
+
+  return str;
+}
+
+/**
+ * Memformat jam sampling ke format HH:mm atau HH:mm:ss
+ */
+export function formatSamplingTime(val: any): string {
+  if (val === undefined || val === null || val === '') return '';
+
+  // Jika nilai pecahan hari Excel (misal 0.354166666666667 adalah 08:30:00)
+  if (typeof val === 'number') {
+    const frac = val >= 1 ? val % 1 : val;
+    if (frac > 0) {
+      const totalSeconds = Math.round(frac * 86400);
+      const hours = Math.floor(totalSeconds / 3600) % 24;
+      const minutes = Math.floor((totalSeconds % 3600) / 60);
+      const seconds = totalSeconds % 60;
+      return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`;
+    }
+  }
+
+  let str = String(val).trim();
+  // Jika string merupakan tanggal lengkap dengan jam (misal "14/10/26 08:30:00" atau "2026-10-14 08:30")
+  if (str.includes(' ') && str.includes(':')) {
+    const timePart = str.split(' ')[1];
+    if (timePart) return timePart;
+  }
+  return str;
 }
 
 /**
@@ -432,10 +553,26 @@ export function parseSpreadsheetBuffer(
       lineOrShift = String(row[mapping.lineCol]).trim();
     }
 
-    let timestamp = new Date().toISOString().split('T')[0];
-    if (mapping.dateCol && row[mapping.dateCol]) {
-      timestamp = String(row[mapping.dateCol]).trim();
+    let sampleDate = '';
+    if (mapping.dateCol && row[mapping.dateCol] !== undefined && row[mapping.dateCol] !== '') {
+      sampleDate = formatToDdMmYy(row[mapping.dateCol]);
     }
+    if (!sampleDate) {
+      const now = new Date();
+      const d = String(now.getDate()).padStart(2, '0');
+      const m = String(now.getMonth() + 1).padStart(2, '0');
+      const y = String(now.getFullYear()).slice(-2);
+      sampleDate = `${d}/${m}/${y}`;
+    }
+
+    let sampleTime = '';
+    if (mapping.timeCol && row[mapping.timeCol] !== undefined && row[mapping.timeCol] !== '') {
+      sampleTime = formatSamplingTime(row[mapping.timeCol]);
+    } else if (mapping.dateCol && typeof row[mapping.dateCol] === 'string' && row[mapping.dateCol].includes(':')) {
+      sampleTime = formatSamplingTime(row[mapping.dateCol]);
+    }
+
+    const timestamp = sampleTime ? `${sampleDate} ${sampleTime}` : sampleDate;
 
     let unit = matchedSku?.unit || 'g';
     if (!matchedSku && mapping.unitCol && row[mapping.unitCol]) {
@@ -484,6 +621,8 @@ export function parseSpreadsheetBuffer(
       id: `sample-${index + 1}-${Date.now()}`,
       sampleNo,
       timestamp,
+      sampleDate,
+      sampleTime: sampleTime || undefined,
       productName,
       productDescription: productDescription || undefined,
       skuCode: skuCode || undefined,
@@ -553,8 +692,10 @@ export function downloadExcelTemplate(): void {
   const templateData = [
     {
       'No Sampel': 1,
-      'Tanggal/Waktu': '2026-10-14 08:30',
+      'Kode SKU': 'SKU-BCK-250',
       'Nama Produk': 'Biskuit Cokelat Krispi 250g',
+      'Tanggal Sampling': '14/10/26',
+      'Jam Sampling': '08:30:00',
       'Deskripsi Produk': 'Kemasan bantal pillow pack plastik metalized',
       'No Batch': 'BC-202610-A1',
       'Line Produksi': 'Line Packing 1',
@@ -567,8 +708,10 @@ export function downloadExcelTemplate(): void {
     },
     {
       'No Sampel': 2,
-      'Tanggal/Waktu': '2026-10-14 08:35',
+      'Kode SKU': 'SKU-BCK-250',
       'Nama Produk': 'Biskuit Cokelat Krispi 250g',
+      'Tanggal Sampling': '14/10/26',
+      'Jam Sampling': '08:35:00',
       'Deskripsi Produk': 'Kemasan bantal pillow pack plastik metalized',
       'No Batch': 'BC-202610-A1',
       'Line Produksi': 'Line Packing 1',
@@ -581,8 +724,10 @@ export function downloadExcelTemplate(): void {
     },
     {
       'No Sampel': 3,
-      'Tanggal/Waktu': '2026-10-14 08:40',
+      'Kode SKU': 'SKU-BCK-250',
       'Nama Produk': 'Biskuit Cokelat Krispi 250g',
+      'Tanggal Sampling': '14/10/26',
+      'Jam Sampling': '08:40:00',
       'Deskripsi Produk': 'Kemasan bantal pillow pack plastik metalized',
       'No Batch': 'BC-202610-A1',
       'Line Produksi': 'Line Packing 1',
@@ -595,8 +740,10 @@ export function downloadExcelTemplate(): void {
     },
     {
       'No Sampel': 4,
-      'Tanggal/Waktu': '2026-10-14 08:45',
+      'Kode SKU': 'SKU-BCK-250',
       'Nama Produk': 'Biskuit Cokelat Krispi 250g',
+      'Tanggal Sampling': '14/10/26',
+      'Jam Sampling': '08:45:00',
       'Deskripsi Produk': 'Kemasan bantal pillow pack plastik metalized',
       'No Batch': 'BC-202610-A1',
       'Line Produksi': 'Line Packing 1',
@@ -609,8 +756,10 @@ export function downloadExcelTemplate(): void {
     },
     {
       'No Sampel': 5,
-      'Tanggal/Waktu': '2026-10-14 08:50',
+      'Kode SKU': 'SKU-BCK-250',
       'Nama Produk': 'Biskuit Cokelat Krispi 250g',
+      'Tanggal Sampling': '14/10/26',
+      'Jam Sampling': '08:50:00',
       'Deskripsi Produk': 'Kemasan bantal pillow pack plastik metalized',
       'No Batch': 'BC-202610-A1',
       'Line Produksi': 'Line Packing 1',
@@ -627,17 +776,20 @@ export function downloadExcelTemplate(): void {
 
   // Styling column widths
   ws['!cols'] = [
-    { wch: 10 },
-    { wch: 18 },
-    { wch: 28 },
-    { wch: 16 },
-    { wch: 16 },
-    { wch: 20 },
-    { wch: 22 },
-    { wch: 14 },
-    { wch: 14 },
-    { wch: 8 },
-    { wch: 32 },
+    { wch: 10 }, // No Sampel
+    { wch: 16 }, // Kode SKU
+    { wch: 28 }, // Nama Produk
+    { wch: 16 }, // Tanggal Sampling (dd/mm/yy)
+    { wch: 14 }, // Jam Sampling (HH:mm:ss)
+    { wch: 32 }, // Deskripsi Produk
+    { wch: 16 }, // No Batch
+    { wch: 16 }, // Line Produksi
+    { wch: 20 }, // Standar Berat Qn (g)
+    { wch: 22 }, // Berat Aktual Netto (g)
+    { wch: 14 }, // Berat Tara (g)
+    { wch: 14 }, // Berat Bruto (g)
+    { wch: 8 },  // Satuan
+    { wch: 32 }, // Catatan QC
   ];
 
   const wb = XLSX.utils.book_new();
@@ -673,31 +825,36 @@ export function buildAnalysisWorkbook(records: BdktRecord[], analysis: BatchAnal
     ['KESIMPULAN AKHIR BDKT:', analysis.overallStatus, analysis.statusMessage],
   ];
 
-  const detailSheetData = records.map((r) => ({
-    'No Sampel': r.sampleNo,
-    'Tanggal/Waktu': r.timestamp || '-',
-    'Kode SKU': r.skuCode || '-',
-    'Nama Produk': r.productName,
-    'Deskripsi Produk': r.productDescription || '-',
-    'No Batch': r.batchNo,
-    'Line / Shift': r.lineOrShift || '-',
-    'Standar Qn (g)': r.nominalWeight,
-    'Berat Tara (g)': r.tareWeight ?? '-',
-    'Berat Bruto (g)': r.grossWeight ?? '-',
-    'Berat Bersih/Aktual (g)': r.actualWeight,
-    'Gap (g)': r.gap,
-    '% Gap': `${r.gapPercent >= 0 ? '+' : ''}${r.gapPercent}%`,
-    'Batas T1 (g)': r.t1Limit,
-    'Batas T2 (g)': r.t2Limit,
-    'Status BDKT':
-      r.status === 'OK'
-        ? 'Sesuai'
-        : r.status === 'OVERFILL'
-        ? 'Sesuai (Overfill)'
-        : r.status === 'T1_DEFICIENT'
-        ? 'Tidak Sesuai (Cacat T1)'
-        : 'Tidak Sesuai (Fatal T2)',
-  }));
+  const detailSheetData = records.map((r) => {
+    const dateVal = r.sampleDate || (r.timestamp ? r.timestamp.split(' ')[0] : '-');
+    const timeVal = r.sampleTime || (r.timestamp && r.timestamp.includes(' ') ? r.timestamp.split(' ')[1] : '-');
+    return {
+      'No Sampel': r.sampleNo,
+      'Kode SKU': r.skuCode || '-',
+      'Nama Produk': r.productName,
+      'Tanggal Sampling': dateVal,
+      'Jam Sampling': timeVal,
+      'Deskripsi Produk': r.productDescription || '-',
+      'No Batch': r.batchNo,
+      'Line / Shift': r.lineOrShift || '-',
+      'Standar Qn (g)': r.nominalWeight,
+      'Berat Tara (g)': r.tareWeight ?? '-',
+      'Berat Bruto (g)': r.grossWeight ?? '-',
+      'Berat Bersih/Aktual (g)': r.actualWeight,
+      'Gap (g)': r.gap,
+      '% Gap': `${r.gapPercent >= 0 ? '+' : ''}${r.gapPercent}%`,
+      'Batas T1 (g)': r.t1Limit,
+      'Batas T2 (g)': r.t2Limit,
+      'Status BDKT':
+        r.status === 'OK'
+          ? 'Sesuai'
+          : r.status === 'OVERFILL'
+          ? 'Sesuai (Overfill)'
+          : r.status === 'T1_DEFICIENT'
+          ? 'Tidak Sesuai (Cacat T1)'
+          : 'Tidak Sesuai (Fatal T2)',
+    };
+  });
 
   const wb = XLSX.utils.book_new();
 
@@ -707,18 +864,23 @@ export function buildAnalysisWorkbook(records: BdktRecord[], analysis: BatchAnal
 
   const wsDetail = XLSX.utils.json_to_sheet(detailSheetData);
   wsDetail['!cols'] = [
-    { wch: 10 },
-    { wch: 16 },
-    { wch: 26 },
-    { wch: 16 },
-    { wch: 14 },
-    { wch: 14 },
-    { wch: 16 },
-    { wch: 12 },
-    { wch: 12 },
-    { wch: 12 },
-    { wch: 12 },
-    { wch: 20 },
+    { wch: 10 }, // No Sampel
+    { wch: 16 }, // Kode SKU
+    { wch: 26 }, // Nama Produk
+    { wch: 16 }, // Tanggal Sampling
+    { wch: 14 }, // Jam Sampling
+    { wch: 24 }, // Deskripsi Produk
+    { wch: 16 }, // No Batch
+    { wch: 14 }, // Line / Shift
+    { wch: 14 }, // Standar Qn
+    { wch: 12 }, // Berat Tara
+    { wch: 12 }, // Berat Bruto
+    { wch: 14 }, // Berat Bersih/Aktual
+    { wch: 10 }, // Gap
+    { wch: 10 }, // % Gap
+    { wch: 12 }, // Batas T1
+    { wch: 12 }, // Batas T2
+    { wch: 22 }, // Status BDKT
   ];
   XLSX.utils.book_append_sheet(wb, wsDetail, 'Data Mentah Pengujian');
 

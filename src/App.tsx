@@ -176,11 +176,85 @@ export default function App() {
     setTimeout(() => setToastMessage(null), 4500);
   };
 
-  // Update Master Data handler
+  // Update Master Data handler with local & cloud Auto-Save
   const handleUpdateMasterData = (newItems: SkuMasterItem[]) => {
     setMasterDataList(newItems);
     saveMasterData(newItems);
-    showToast(`Master Data berhasil diperbarui (${newItems.length} SKU terdaftar)`, 'success');
+    showToast(`Master Data berhasil diperbarui (${newItems.length} SKU) & disimpan otomatis!`, 'success');
+
+    if (accessToken) {
+      autoSaveMasterDataToGoogleDrive(accessToken, newItems)
+        .then(() => {
+          showToast(`Master Data otomatis dicadangkan ke Google Drive Cloud.`, 'success');
+        })
+        .catch((err) => {
+          console.warn('Gagal mencadangkan Master Data ke Google Drive:', err);
+        });
+    }
+  };
+
+  // Auto-Save process for any spreadsheet upload
+  const processAndAutoSaveUploadedData = (
+    cleanRecords: BdktRecord[],
+    fileName: string
+  ) => {
+    setRecords(cleanRecords);
+    setSelectedSampleId('custom');
+    setLastUploadedFileName(fileName);
+    setValidationSummary(null);
+    setActiveDatasetRestored(false);
+
+    // 1. Auto-Save Active Dataset to local storage
+    saveActiveDataset(fileName, cleanRecords, 'custom', costPerKg);
+
+    // 2. Compute Batch Analysis for history log
+    const prodName = cleanRecords.length > 0 ? cleanRecords[0].productName : 'Produk BDKT';
+    const batch = cleanRecords.length > 0 ? cleanRecords[0].batchNo : 'BATCH-001';
+    const unit = cleanRecords.length > 0 ? cleanRecords[0].unit : 'g';
+    const batchEval = evaluateBatchData(cleanRecords, prodName, batch, unit, costPerKg);
+
+    // 3. Save Upload Activity record (auto-saved upload activity)
+    const savedActivity = saveUploadActivity(fileName, cleanRecords, batchEval);
+    setSavedUploadsCount(getSavedUploadActivities().length);
+
+    // 4. Background Cloud Auto-Save if Google Drive is connected
+    if (accessToken) {
+      showToast(
+        `Auto-Save: Menyimpan ${cleanRecords.length} sampel ke memori lokal & Google Drive...`,
+        'info'
+      );
+      autoSaveUploadToGoogleDrive(accessToken, fileName, cleanRecords, batchEval)
+        .then((res) => {
+          updateUploadActivityCloudSync(savedActivity.id, res.fileId, res.webViewLink);
+          showToast(
+            `Data upload berhasil disimpan di memori & di-backup ke Google Drive!`,
+            'success'
+          );
+        })
+        .catch((err) => {
+          console.warn('Auto-save to Google Drive background failed:', err);
+          showToast(
+            `Data tersimpan otomatis di perangkat lokal. (Sinkron Google Drive: ${err?.message || 'gagal tersambung'})`,
+            'info'
+          );
+        });
+    } else {
+      showToast(
+        `Auto-Save Berhasil: ${cleanRecords.length} data tersimpan otomatis di memori & riwayat upload!`,
+        'success'
+      );
+    }
+  };
+
+  // Restore dataset from past auto-saved upload activities
+  const handleRestoreActivity = (restoredRecords: BdktRecord[], fileName: string) => {
+    setRecords(restoredRecords);
+    setSelectedSampleId('custom');
+    setLastUploadedFileName(fileName);
+    saveActiveDataset(fileName, restoredRecords, 'custom', costPerKg);
+    setActiveDatasetRestored(true);
+    setIsUploadHistoryOpen(false);
+    showToast(`Berhasil memulihkan ${restoredRecords.length} data sampel dari riwayat: ${fileName}`, 'success');
   };
 
   // Filtered Records based on FilterBar Dropdown controls
@@ -215,24 +289,43 @@ export default function App() {
       }
 
       // 4. Period / Date Filter
-      if (r.timestamp) {
-        const itemDateStr = r.timestamp.split(' ')[0]; // format YYYY-MM-DD
-        const itemDate = new Date(itemDateStr);
+      if (r.timestamp || r.sampleDate) {
+        const rawDateStr = (r.sampleDate || r.timestamp?.split(' ')[0] || '').trim();
+        let itemDate: Date | null = null;
+        let itemIsoStr = '';
 
-        if (filterState.period === 'TODAY') {
-          const todayStr = new Date().toISOString().split('T')[0];
-          if (itemDateStr !== todayStr && itemDateStr !== '2026-10-14') return false;
-        } else if (filterState.period === 'LAST_7_DAYS') {
-          const now = new Date();
-          const diffDays = (now.getTime() - itemDate.getTime()) / (1000 * 3600 * 24);
-          if (diffDays > 7 || diffDays < 0) return false;
-        } else if (filterState.period === 'LAST_30_DAYS') {
-          const now = new Date();
-          const diffDays = (now.getTime() - itemDate.getTime()) / (1000 * 3600 * 24);
-          if (diffDays > 30 || diffDays < 0) return false;
-        } else if (filterState.period === 'CUSTOM') {
-          if (filterState.startDate && itemDateStr < filterState.startDate) return false;
-          if (filterState.endDate && itemDateStr > filterState.endDate) return false;
+        if (rawDateStr.includes('/')) {
+          // Format dd/mm/yy atau dd/mm/yyyy
+          const parts = rawDateStr.split('/');
+          if (parts.length === 3) {
+            const day = parseInt(parts[0], 10);
+            const month = parseInt(parts[1], 10) - 1;
+            let year = parseInt(parts[2], 10);
+            if (year < 100) year += 2000;
+            itemDate = new Date(year, month, day);
+            itemIsoStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+          }
+        } else if (rawDateStr.includes('-')) {
+          itemDate = new Date(rawDateStr);
+          itemIsoStr = rawDateStr;
+        }
+
+        if (itemDate && !isNaN(itemDate.getTime())) {
+          if (filterState.period === 'TODAY') {
+            const todayStr = new Date().toISOString().split('T')[0];
+            if (itemIsoStr !== todayStr && itemIsoStr !== '2026-10-14') return false;
+          } else if (filterState.period === 'LAST_7_DAYS') {
+            const now = new Date();
+            const diffDays = (now.getTime() - itemDate.getTime()) / (1000 * 3600 * 24);
+            if (diffDays > 7 || diffDays < 0) return false;
+          } else if (filterState.period === 'LAST_30_DAYS') {
+            const now = new Date();
+            const diffDays = (now.getTime() - itemDate.getTime()) / (1000 * 3600 * 24);
+            if (diffDays > 30 || diffDays < 0) return false;
+          } else if (filterState.period === 'CUSTOM') {
+            if (filterState.startDate && itemIsoStr < filterState.startDate) return false;
+            if (filterState.endDate && itemIsoStr > filterState.endDate) return false;
+          }
         }
       }
 
@@ -258,6 +351,7 @@ export default function App() {
       setRecords(data);
       const meta = SAMPLE_DATASETS.find((d) => d.id === id);
       showToast(`Memuat data sampel: ${meta?.title}`, 'info');
+      setActiveDatasetRestored(false);
     }
   };
 
@@ -295,14 +389,8 @@ export default function App() {
         setPreviewRows(parsed.rawRows);
         setIsColumnMapperOpen(true);
       } else {
-        // 100% clean data: load into records
-        setRecords(parsed.records);
-        setSelectedSampleId('custom');
-        setValidationSummary(null);
-        showToast(
-          `Berhasil mengimpor ${parsed.records.length} data sampel dari ${fileName}! (100% Valid)`,
-          'success'
-        );
+        // 100% clean data: load into records and trigger Auto-Save immediately
+        processAndAutoSaveUploadedData(parsed.records, fileName);
       }
     } catch (err: any) {
       console.error(err);
@@ -334,10 +422,8 @@ export default function App() {
       }
 
       if (parsed.records.length > 0) {
-        setRecords(parsed.records);
-        setSelectedSampleId('custom');
-        setValidationSummary(null);
-        showToast(`Berhasil memuat ${parsed.records.length} data dengan pemetaan kolom kustom!`, 'success');
+        processAndAutoSaveUploadedData(parsed.records, lastUploadedFileName || 'file_timbang.xlsx');
+        setIsColumnMapperOpen(false);
       } else {
         showToast('Tidak ada data numerik yang valid pada kolom terpilih.', 'error');
       }
@@ -377,6 +463,8 @@ export default function App() {
         onExportReport={handleExportReport}
         onOpenCalculator={() => setIsCalculatorOpen(true)}
         onOpenMasterData={() => setIsMasterDataOpen(true)}
+        onOpenUploadHistory={() => setIsUploadHistoryOpen(true)}
+        savedUploadCount={savedUploadsCount}
         onOpenGoogleDrive={() => {
           setGoogleDriveInitialTab('SYNC_UPLOAD');
           setIsGoogleDriveOpen(true);
@@ -409,6 +497,51 @@ export default function App() {
             >
               Tutup
             </button>
+          </div>
+        )}
+
+        {/* Auto-Saved Active Dataset Restore Notification Banner */}
+        {activeDatasetRestored && selectedSampleId === 'custom' && (
+          <div className="bg-emerald-50 border border-emerald-300 rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 text-emerald-950 shadow-xs animate-in fade-in duration-200">
+            <div className="flex items-start gap-3">
+              <div className="p-2 bg-emerald-600 text-white rounded-xl shrink-0 mt-0.5">
+                <CheckCircle2 className="w-5 h-5" />
+              </div>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-[11px] font-black uppercase tracking-wider px-2 py-0.5 rounded bg-emerald-600 text-white shadow-2xs">
+                    Auto-Save Aktif
+                  </span>
+                  <p className="font-extrabold text-sm text-emerald-950">
+                    Sesi Data Upload Terakhir Berhasil Dipulihkan Otomatis
+                  </p>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded bg-white border border-emerald-200 font-semibold text-emerald-900">
+                    {lastUploadedFileName || 'Upload Tersimpan'}
+                  </span>
+                </div>
+                <p className="text-xs text-emerald-800 mt-1">
+                  Menampilkan <strong>{records.length} data sampel</strong> hasil timbang. Setiap perubahan data dan aktivitas upload disimpan otomatis secara real-time.
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center">
+              <button
+                onClick={() => setIsUploadHistoryOpen(true)}
+                className="px-3 py-1.5 bg-white hover:bg-emerald-100 text-emerald-800 text-xs font-bold rounded-xl border border-emerald-300 shadow-2xs transition cursor-pointer"
+              >
+                Riwayat Upload ({savedUploadsCount})
+              </button>
+              <button
+                onClick={() => {
+                  clearActiveDataset();
+                  handleSelectSample('kopi-100g');
+                  showToast('Dataset aktif direset ke contoh data sampel.', 'info');
+                }}
+                className="px-3 py-1.5 bg-emerald-100/70 hover:bg-emerald-200 text-emerald-900 text-xs font-semibold rounded-xl transition cursor-pointer"
+              >
+                Reset ke Sampel
+              </button>
+            </div>
           </div>
         )}
 
@@ -656,6 +789,14 @@ export default function App() {
         onClose={() => setIsMasterDataOpen(false)}
         masterDataList={masterDataList}
         onUpdateMasterData={handleUpdateMasterData}
+        accessToken={accessToken}
+      />
+
+      {/* Auto-Saved Upload Activity History Modal */}
+      <UploadHistoryModal
+        isOpen={isUploadHistoryOpen}
+        onClose={() => setIsUploadHistoryOpen(false)}
+        onRestoreActivity={handleRestoreActivity}
       />
 
       {/* Input Error & Standard Mismatch Detail Modal */}

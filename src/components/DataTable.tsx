@@ -287,7 +287,22 @@ export const DataTable: React.FC<DataTableProps> = ({ records }) => {
                       #{record.sampleNo}
                     </td>
                     <td className="py-2 px-3 text-[11px]">
-                      <div className="text-slate-900 font-medium">{record.timestamp || '-'}</div>
+                      <div className="text-slate-900 font-medium">
+                        {record.sampleDate || record.timestamp ? (
+                          <div className="flex items-center gap-1.5 font-mono">
+                            <span className="text-slate-900 font-semibold">
+                              {record.sampleDate || record.timestamp?.split(' ')[0]}
+                            </span>
+                            {(record.sampleTime || (record.timestamp && record.timestamp.includes(' ') ? record.timestamp.split(' ')[1] : '')) && (
+                              <span className="text-slate-600 text-[10px] bg-slate-100 px-1.5 py-0.2 rounded border border-slate-200 font-normal">
+                                {record.sampleTime || record.timestamp?.split(' ')[1]}
+                              </span>
+                            )}
+                          </div>
+                        ) : (
+                          '-'
+                        )}
+                      </div>
                       <div className="text-[10px] text-slate-400">{record.lineOrShift || 'Line 1'}</div>
                     </td>
                     <td className="py-2 px-3">

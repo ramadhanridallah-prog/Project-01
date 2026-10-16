@@ -186,13 +186,16 @@ export const FileUploadModal: React.FC<FileUploadModalProps> = ({
             </div>
             <ul className="text-[11px] text-slate-600 space-y-1 list-disc list-inside">
               <li>
-                <strong className="text-slate-800">Berat Aktual (Wajib):</strong> nama kolom "Berat Aktual", "Actual", "Netto", atau "Hasil Timbang".
+                <strong className="text-slate-800">Kode SKU & Produk:</strong> kolom "Kode SKU" (misal SKU-BCK-250) & "Nama Produk".
               </li>
               <li>
-                <strong className="text-slate-800">Standar Qn (Opsional):</strong> nama kolom "Standar", "Target", "Qn", atau "Nominal".
+                <strong className="text-slate-800">Tanggal & Jam Sampling:</strong> kolom "Tanggal Sampling" (format <code>dd/mm/yy</code>) dan kolom "Jam Sampling" terpisah (<code>HH:mm:ss</code>).
               </li>
               <li>
-                <strong className="text-slate-800">Informasi Batch / Produk (Opsional):</strong> nomor batch, nama produk, line produksi.
+                <strong className="text-slate-800">Berat Aktual & Standar Qn:</strong> kolom "Berat Aktual Netto (g)" dan "Standar Berat Qn (g)".
+              </li>
+              <li>
+                <strong className="text-slate-800">Informasi Batch & Line:</strong> kolom "No Batch", "Line Produksi", "Berat Tara (g)".
               </li>
             </ul>
             <div className="pt-2 border-t border-slate-200 text-[10px] text-rose-700 font-semibold flex items-center gap-1.5">

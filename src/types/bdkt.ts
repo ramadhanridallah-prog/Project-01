@@ -11,6 +11,8 @@ export interface BdktRecord {
   id: string;
   sampleNo: number;
   timestamp?: string;
+  sampleDate?: string;         // Tanggal sampling format dd/mm/yy
+  sampleTime?: string;         // Jam sampling format HH:mm:ss atau HH:mm
   productName: string;
   productDescription?: string; // Deskripsi produk (kemasan, spesifikasi)
   skuCode?: string;            // Kode SKU Master
@@ -101,6 +103,7 @@ export interface ColumnMappingConfig {
   batchNoCol?: string;
   lineCol?: string;
   dateCol?: string;
+  timeCol?: string;
   actualWeightCol: string;
   nominalWeightCol?: string;
   tareWeightCol?: string;

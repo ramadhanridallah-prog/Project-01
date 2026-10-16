@@ -258,6 +258,48 @@ export const ColumnMapperModal: React.FC<ColumnMapperModalProps> = ({
                 ))}
               </select>
             </div>
+
+            {/* Sampling Date */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Kolom Tanggal Sampling (dd/mm/yy)
+              </label>
+              <select
+                value={mapping.dateCol || ''}
+                onChange={(e) =>
+                  setMapping({ ...mapping, dateCol: e.target.value })
+                }
+                className="w-full bg-slate-50 text-xs text-slate-900 px-3 py-2 rounded-xl border border-slate-300 font-medium"
+              >
+                <option value="">-- Otomatis --</option>
+                {availableColumns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+            </div>
+
+            {/* Sampling Time */}
+            <div>
+              <label className="block text-xs font-bold text-slate-700 mb-1.5">
+                Kolom Jam Sampling (Terpisah)
+              </label>
+              <select
+                value={mapping.timeCol || ''}
+                onChange={(e) =>
+                  setMapping({ ...mapping, timeCol: e.target.value })
+                }
+                className="w-full bg-slate-50 text-xs text-slate-900 px-3 py-2 rounded-xl border border-slate-300 font-medium"
+              >
+                <option value="">-- Otomatis / Dari Tanggal --</option>
+                {availableColumns.map((col) => (
+                  <option key={col} value={col}>
+                    {col}
+                  </option>
+                ))}
+              </select>
+            </div>
           </div>
 
           {/* Data Preview */}
